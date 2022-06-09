@@ -107,8 +107,7 @@ const get_datasets = (bbox, days, page_start, product, dest) => {
                         dataset.download(ds_no_pending, dest)
 
 
-                    }
-                    else {
+                    } else {
                         console.log(error);
                     }
                 });

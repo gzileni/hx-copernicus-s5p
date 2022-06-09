@@ -22,9 +22,10 @@ const download = async (dataset, dest, cb) => {
         const stream = fd.createWriteStream;
 
         https.get(d.url, (res) => {
+            console.log(JSON.stringify(res));
             console.log('statusCode:', res.statusCode);
             console.log('headers:', res.headers);
-            
+            bucket.create(d.title);
             bucket.upload(d.title, d.id, res.data);
         }).on('error', (e) => {
             console.error(e);
