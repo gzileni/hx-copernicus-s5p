@@ -13,8 +13,9 @@ import { upload as bucket } from './aws/s3_bucket.js';
 
 const xml2js = require('xml2js');
 const parser = new xml2js.Parser({ attrkey: "ATTR" });
+const ProgressBar = require('progress');
 
-const DOWNLOAD_URL = './download';
+// const DOWNLOAD_URL = './download';
 
 const auth = {
     headers: {
@@ -30,14 +31,27 @@ const auth = {
  * @param {*} dest 
  * @param {*} cb 
  */
-const download = async (bucket_name, dataset, dest, cb) => {
+const download = async (bucket_name, dataset) => {
+
+    let bar = new ProgressBar(':current: :token1 :token2', { total: _.size(dataset) })
 
     _.forEach(dataset, d => {
 
         const writer = new stream.Writable();
-
+        let max_bytes = 0;
+        let status_bytes = 0;
+        
         https.get(d.url, auth, res => {
             
+            let current_bytes = parseInt(res.headers['content-length'], 10);
+            max_bytes += current_bytes;
+            let data = [];
+
+            bar.tick({
+                'token1': d.id,
+                'token2': parseFloat(current_bytes/1000).toFixed(2) + ' MB'
+            })            
+                
             res.pipe(writer);
 
             writer.on('pipe', (src) => {
@@ -45,13 +59,14 @@ const download = async (bucket_name, dataset, dest, cb) => {
             });
 
             writer._write = (chunk, encoding, next) => {
-                console.log('downloading ...')
-                bucket(bucket_name, d.title, chunk);
+                status_bytes += chunk.length;
+                data.push(chunk);
                 next();
             }
 
             writer.on('finish', () => {
                 console.log('All writes are now complete.');
+                bucket(bucket_name, d.title + '.nc', data);
             });
 
         }).on('error', (e) => {
@@ -229,11 +244,11 @@ const create_download_folder = (path) => {
 const main = () => {
 
     _.forEach(config.zones, zone => {
-        const dest = `${DOWNLOAD_URL}/${zone.key}`
-        create_download_folder(dest);
+        // const dest = `${DOWNLOAD_URL}/${zone.key}`
+        // create_download_folder(dest);
         const bbox = zone.value;
         _.forEach(products, product => {
-            const datasets = get_datasets(bbox, zone.days, 1, product.product, dest);
+            const datasets = get_datasets(bbox, zone.days, 1, product.product);
         })
         
 
