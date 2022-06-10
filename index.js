@@ -1,7 +1,7 @@
 import config from './config.js';
 import products from './products.js';
-import { createWriteStream } from 'node:fs';
 import { createRequire } from "module";
+import stream from 'node:stream';
 const require = createRequire(import.meta.url);
 
 import https  from 'node:https';
@@ -9,14 +9,66 @@ import { mkdir } from 'node:fs';
 
 import _ from 'lodash';
 import * as turf from '@turf/turf';
-import ddb from './aws/ddb_write.js';
-import dataset from './datasets.js';
+import { upload as bucket } from './aws/s3_bucket.js';
 
 const xml2js = require('xml2js');
 const parser = new xml2js.Parser({ attrkey: "ATTR" });
 
-const DOWNLOAD_URL = './download'
+const DOWNLOAD_URL = './download';
 
+const auth = {
+    headers: {
+        'Authorization': 'Basic czVwZ3Vlc3Q6czVwZ3Vlc3Q=',
+        'Content-Type': 'application/xml'
+    } 
+}
+
+/**
+ * 
+ * @param {*} bucket 
+ * @param {*} dataset 
+ * @param {*} dest 
+ * @param {*} cb 
+ */
+const download = async (bucket_name, dataset, dest, cb) => {
+
+    _.forEach(dataset, d => {
+
+        const writer = new stream.Writable();
+
+        https.get(d.url, auth, res => {
+            
+            res.pipe(writer);
+
+            writer.on('pipe', (src) => {
+                console.log('Something is piping into the writer.');
+            });
+
+            writer._write = (chunk, encoding, next) => {
+                console.log('downloading ...')
+                bucket(bucket_name, d.title, chunk);
+                next();
+            }
+
+            writer.on('finish', () => {
+                console.log('All writes are now complete.');
+            });
+
+        }).on('error', (e) => {
+            console.error(e);
+        });
+    });
+
+}
+
+/**
+ * 
+ * @param {*} bbox 
+ * @param {*} days 
+ * @param {*} page_start 
+ * @param {*} product 
+ * @param {*} dest 
+ */
 const get_datasets = (bbox, days, page_start, product, dest) => {
 
     const poly = turf.bboxPolygon(bbox);
@@ -27,24 +79,12 @@ const get_datasets = (bbox, days, page_start, product, dest) => {
         });
     })
 
-    const footprint = `footprint:"Intersects(POLYGON((${coordinates.join(',')})))"`;
-
     // footprint:"Intersects(POLYGON((-4.53 29.85, 26.75 29.85, 26.75 46.80,-4.53 46.80,-4.53 29.85)))"
+    const footprint = `footprint:"Intersects(POLYGON((${coordinates.join(',')})))"`;
 
     const url = `https://${config.url}/dhus/search?start=${page_start}&rows=100&q=ingestiondate:[NOW-${days}DAYS TO NOW] AND platformname:${config.platform} AND producttype:${product} AND ${footprint}`;
 
-    var options = {
-        host: 's5phub.copernicus.eu',
-        port: 443,
-        path: encodeURI(`/dhus/search?start=${page_start}&rows=100&q=ingestiondate:[NOW-${days}DAYS TO NOW] AND platformname:${config.platform} AND producttype:${product} AND ${footprint}`),
-        // authentication headers
-        headers: {
-            'Authorization': 'Basic czVwZ3Vlc3Q6czVwZ3Vlc3Q=',
-            'Content-Type': 'application/xml'
-        }   
-    };
-
-    let req = https.get(options, (res) => {
+    let req = https.get(url, auth, (res) => {
         const { statusCode } = res;
         const contentType = res.headers['content-type'];
 
@@ -103,8 +143,9 @@ const get_datasets = (bbox, days, page_start, product, dest) => {
                             return d.pending === true;
                         });
 
-                        ddb(ds_pending);
-                        dataset.download(ds_no_pending, dest)
+                        // ddb(ds_pending);
+                        download('sp5', ds_pending, dest)
+                        // dataset.download(ds_no_pending, dest);
 
 
                     } else {

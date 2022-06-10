@@ -1,32 +1,40 @@
 import https from 'node:https';
-// import { fs } from 'node:fs/promises';
-import { open } from 'node:fs/promises';
-import * as path from 'node:path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import stream from 'node:stream';
 import bucket from './aws/s3_bucket.js';
 
 import _ from 'lodash';
 
-const download = async (dataset, dest, cb) => {
+const download = async (bucket, dataset, dest, cb) => {
 
     _.forEach(dataset, d => {
 
-        bucket.create(d.title);
+        const writer = new stream.Writable();
 
-        const dirPath = path.join(__dirname, `/${dest}/${d.id}`);
-        console.log(dirPath)
-        const fd = open(dirPath);
-        console.log(path);
-        const stream = fd.createWriteStream;
+        const options = {
+            headers: {
+                'Authorization': 'Basic czVwZ3Vlc3Q6czVwZ3Vlc3Q=',
+                'Content-Type': 'application/xml'
+            } 
+        }
 
-        https.get(d.url, (res) => {
-            console.log(JSON.stringify(res));
-            console.log('statusCode:', res.statusCode);
-            console.log('headers:', res.headers);
-            bucket.create(d.title);
-            bucket.upload(d.title, d.id, res.data);
+        https.get(d.url, options, res => {
+            
+            res.pipe(writer);
+
+            writer.on('pipe', (src) => {
+                console.log('Something is piping into the writer.');
+            });
+
+            writer._write = (chunk, encoding, next) => {
+                console.log(chunk.toString())
+                bucket(bucket, d.title, chunk);
+                next();
+            }
+
+            writer.on('finish', () => {
+                console.log('All writes are now complete.');
+            });
+
         }).on('error', (e) => {
             console.error(e);
         });
